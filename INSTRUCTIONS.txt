@@ -1,0 +1,55 @@
+NexusAI Feature Update - 4 New Features
+==========================================
+
+WHAT'S NEW:
+1. /v1/chat/completions - OpenAI-compatible API endpoint
+2. Conversation History - saved to localStorage, persists on refresh
+3. Server-side Agent Tools - real calculator + datetime execution
+4. Rate Limit Fallback - auto-switches to smaller model if 7B is busy
+
+
+FILES TO ADD (3 new files):
+
+1. src/app/api/v1/chat/completions/route.ts
+   -> Create folder: src/app/api/v1/chat/completions/
+   -> Paste v1-completions-route.ts as route.ts
+
+2. src/lib/storage.ts
+   -> Paste as-is into src/lib/storage.ts
+
+3. src/lib/tools.ts
+   -> Paste as-is into src/lib/tools.ts
+
+
+FILES TO REPLACE (2 files):
+
+4. src/app/api/chat/route.ts
+   -> Replace entire content with the provided route.ts
+
+5. src/app/chat/page.tsx
+   -> Replace entire content with the provided page.tsx
+
+
+
+HOW TO APPLY:
+
+Option A (Easy - GitHub Web Editor):
+1. Go to https://github.com/Techgeek8000-byte/nexusai-website
+2. For each file above, click on it -> click pencil icon -> paste new content -> commit
+3. For new files, click "Add file" -> "Create new file" -> paste content
+4. Each commit triggers a Vercel redeploy
+
+Option B (Git Bash):
+1. Copy each file to the correct path in your local repo
+2. git add -A
+3. git commit -m "feat: add API endpoint, conversation persistence, server-side tools, rate limit fallback"
+4. git push origin main
+
+
+WHAT YOU'LL SEE:
+- Chat page now has a "History" sidebar with saved conversations
+- "New Chat" button to start fresh
+- Conversations auto-save and survive page refresh
+- /v1/chat/completions endpoint works with OpenAI SDK
+- If 7B model is rate-limited, it auto-falls back to 3B then 0.5B
+- Calculator and datetime tools run server-side (more reliable)
