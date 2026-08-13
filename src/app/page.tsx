@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import Link from 'next/link'
 import {
   Bot, Zap, Globe, Shield, Code2, BrainCircuit,
   ArrowRight, Check, ChevronDown, Menu, X,
@@ -137,6 +138,9 @@ export default function Home() {
 
             {/* Desktop Nav */}
             <nav className="hidden md:flex items-center gap-8">
+              <Link href="/chat" className="text-sm text-teal-600 hover:text-teal-700 font-medium transition-colors">
+                Chat
+              </Link>
               {['Features', 'Demo', 'API', 'Roadmap'].map(item => (
                 <a key={item} href={`#${item.toLowerCase()}`}
                    className="text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -149,8 +153,8 @@ export default function Home() {
               <Button variant="ghost" size="sm" asChild>
                 <a href="#api" className="gap-2"><Github className="w-4 h-4" /> GitHub</a>
               </Button>
-              <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white gap-2">
-                Get Started <ArrowRight className="w-4 h-4" />
+              <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white gap-2" asChild>
+                <Link href="/chat">Open Chat <ArrowRight className="w-4 h-4" /></Link>
               </Button>
             </div>
 
@@ -170,8 +174,8 @@ export default function Home() {
                   {item}
                 </a>
               ))}
-              <Button size="sm" className="w-full bg-teal-600 hover:bg-teal-700 text-white gap-2">
-                Get Started <ArrowRight className="w-4 h-4" />
+              <Button size="sm" className="w-full bg-teal-600 hover:bg-teal-700 text-white gap-2" asChild>
+                <Link href="/chat">Open Chat <ArrowRight className="w-4 h-4" /></Link>
               </Button>
             </div>
           )}
@@ -204,8 +208,8 @@ export default function Home() {
               </p>
 
               <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Button size="lg" className="bg-teal-600 hover:bg-teal-700 text-white px-8 h-12 text-base gap-2">
-                  <Zap className="w-5 h-5" /> Start Building Free
+                <Button size="lg" className="bg-teal-600 hover:bg-teal-700 text-white px-8 h-12 text-base gap-2" asChild>
+                  <Link href="/chat"><Zap className="w-5 h-5" /> Open AI Chat</Link>
                 </Button>
                 <Button size="lg" variant="outline" className="px-8 h-12 text-base gap-2" asChild>
                   <a href="#demo"><MessageSquare className="w-5 h-5" /> Try Live Demo</a>
