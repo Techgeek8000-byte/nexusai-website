@@ -1,0 +1,243 @@
+# ============================================================================
+# NexusAI Fine-Tuning Pipeline — Configuration
+# A Project by Osama
+# ============================================================================
+# This configuration file controls all aspects of the QLoRA fine-tuning process.
+# Modify values as needed for your use case. All parameters have sensible defaults.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Model Settings
+# ----------------------------------------------------------------------------
+model:
+  # HuggingFace model identifier or local path to the base model
+  base_model: "Qwen/Qwen2.5-7B"
+
+  # Maximum sequence length for training (tokens)
+  # Qwen 2.5 supports up to 131072, but longer sequences use more VRAM
+  # 2048 is a good balance for most instruction-tuning tasks
+  max_seq_length: 2048
+
+  # Data type for computations: "bfloat16", "float16", or "auto"
+  # bfloat16 is recommended for Ampere+ GPUs (RTX 30xx, 40xx, A100, H100)
+  # float16 can be used on older GPUs (V100, RTX 20xx) but may cause overflow
+  dtype: "bfloat16"
+
+  # Trust remote code when loading model (needed for some custom models)
+  trust_remote_code: true
+
+  # Use Flash Attention 2 for faster training (requires flash-attn package)
+  # Auto-detects availability if set to "auto"
+  use_flash_attention: "auto"
+
+  # Optional: path to a local model cache directory
+  # cache_dir: "/path/to/cache"
+
+# ----------------------------------------------------------------------------
+# LoRA (Low-Rank Adaptation) Configuration
+# ----------------------------------------------------------------------------
+lora:
+  # Rank of the LoRA update matrices
+  # Higher rank = more capacity but more parameters and VRAM
+  # Common: 8 (lightweight), 16 (default), 32 (high capacity), 64 (complex tasks)
+  r: 16
+
+  # Scaling factor applied to the LoRA update
+  # Typically set to 2x the rank; controls how strongly the adapter influences outputs
+  lora_alpha: 32
+
+  # Target modules to apply LoRA to
+  # Qwen2 uses GQA, so we target both q_proj and kv_proj
+  # Adding gate/up/down projections from SwiGLU MLP improves quality
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+  # Dropout probability on LoRA layers (prevents overfitting)
+  # 0.0 = no dropout (common for small datasets), 0.1 = moderate, 0.2 = high
+  lora_dropout: 0.05
+
+  # Bias configuration for LoRA layers
+  # "none" (default), "all", or "lora_only"
+  bias: "none"
+
+  # Task type for PEFT
+  task_type: "CAUSAL_LM"
+
+  # Use nested quantization for additional memory savings (4-bit base + 8-bit LoRA)
+  nested_quant: false
+
+  # Use bnb-4bit quantization with double quantization (more VRAM savings)
+  bnb_4bit_use_double_quant: true
+
+  # Quantization type: "nf4" (normal float 4, recommended) or "fp4"
+  bnb_4bit_quant_type: "nf4"
+
+  # Compute dtype for quantized layers
+  bnb_4bit_compute_dtype: "bfloat16"
+
+# ----------------------------------------------------------------------------
+# Training Arguments
+# ----------------------------------------------------------------------------
+training:
+  # Number of samples per GPU per training step
+  # Reduce if you get OOM errors; increase for faster training
+  # Typical: 1-4 for 7B models with QLoRA
+  per_device_train_batch_size: 2
+
+  # Accumulate gradients over N steps before updating weights
+  # Effective batch size = per_device_train_batch_size * gradient_accumulation_steps * num_gpus
+  # E.g., 2 * 4 * 1 = 8 effective batch size
+  gradient_accumulation_steps: 4
+
+  # Peak learning rate for the AdamW optimizer
+  # QLoRA works well with 1e-4 to 3e-4; start lower for larger datasets
+  learning_rate: 2.0e-4
+
+  # Learning rate scheduler type
+  # "cosine" (recommended for most cases), "linear", "polynomial"
+  lr_scheduler_type: "cosine"
+
+  # Optimizer to use: "paged_adamw_32bit", "paged_adamw_8bit", "adamw_torch"
+  # paged_adamw_8bit uses less VRAM
+  optim: "paged_adamw_8bit"
+
+  # Total number of training epochs (full passes over the dataset)
+  # 1-3 is typical for instruction tuning; more can cause overfitting
+  num_train_epochs: 3
+
+  # Fraction of training steps used for learning rate warmup
+  # 0.03 = 3% of steps gradually increase LR from 0 to peak
+  warmup_ratio: 0.03
+
+  # Weight decay for regularization (L2 regularization)
+  # Helps prevent overfitting; 0.01 is standard
+  weight_decay: 0.01
+
+  # Maximum gradient norm for clipping (prevents exploding gradients)
+  max_grad_norm: 1.0
+
+  # Log training metrics every N steps
+  logging_steps: 25
+
+  # Strategy for saving checkpoints during training
+  # "steps" = save every save_steps, "epoch" = save at end of each epoch
+  save_strategy: "steps"
+
+  # Save a checkpoint every N training steps
+  save_steps: 100
+
+  # Maximum number of checkpoints to keep (older ones are deleted)
+  save_total_limit: 3
+
+  # Evaluate the model every N steps (if eval dataset is provided)
+  eval_strategy: "steps"
+  eval_steps: 100
+
+  # Use bfloat16 for training (mixed precision)
+  # Set to true if your GPU supports it (Ampere+ architecture)
+  bf16: true
+
+  # Use float16 instead of bfloat16 (for older GPUs)
+  fp16: false
+
+  # Enable gradient checkpointing to reduce VRAM usage
+  # Trades computation for memory; adds ~20% training time but saves significant VRAM
+  gradient_checkpointing: true
+
+  # Use gradient checkpointing with kwargs for extra memory savings
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+
+  # Number of workers for data loading
+  # Set to 0 for debugging, 4 for normal training
+  dataloader_num_workers: 4
+
+  # Remove unused columns from the dataset before training
+  dataset_text_field: "text"
+
+  # Seed for reproducibility
+  seed: 42
+
+  # Pad sequences to the longest in the batch (more efficient than fixed padding)
+  padding: true
+
+  # Maximum number of training steps (overrides num_train_epochs if set)
+  # max_steps: 1000
+
+  # Group sequences of similar length together to minimize padding waste
+  group_by_length: true
+
+# ----------------------------------------------------------------------------
+# Data Settings
+# ----------------------------------------------------------------------------
+data:
+  # Path to the prepared training dataset (JSONL or Parquet)
+  # Use "prepare_dataset.py" to create this
+  dataset_path: "data/train.jsonl"
+
+  # Path to validation dataset (optional)
+  val_dataset_path: "data/val.jsonl"
+
+  # Fraction of data to use for validation (if val_dataset_path not provided)
+  validation_split: 0.1
+
+  # Maximum number of training samples (useful for testing/debugging)
+  # Set to -1 or null to use all samples
+  max_samples: -1
+
+  # Shuffle the training dataset
+  shuffle_dataset: true
+
+  # Dataset streaming mode (for very large datasets that don't fit in RAM)
+  streaming: false
+
+# ----------------------------------------------------------------------------
+# Output Settings
+# ----------------------------------------------------------------------------
+output:
+  # Directory to save training outputs (checkpoints, logs, adapter weights)
+  output_dir: "outputs/qlora-adapters"
+
+  # Whether to push the trained adapter to HuggingFace Hub
+  push_to_hub: false
+
+  # HuggingFace Hub repository name (required if push_to_hub is true)
+  # hub_model_id: "your-username/nexusai-qwen-7b-qlora"
+
+  # Push the merged model (not just adapters) to the Hub
+  # push_merged_to_hub: false
+
+  # W&B project name for experiment tracking
+  wandb_project: "nexusai-finetuning"
+
+  # W&B run name (auto-generated if not set)
+  # wandb_run_name: "qlora-qwen-7b-v1"
+
+  # Whether to disable W&B logging
+  # Set to true for offline training without wandb
+  wandb_disabled: false
+
+# ----------------------------------------------------------------------------
+# Evaluation Settings
+# ----------------------------------------------------------------------------
+evaluation:
+  # Number of samples to use for evaluation during training
+  eval_samples: 500
+
+  # Number of tokens to generate for qualitative evaluation
+  generation_max_length: 512
+
+  # Temperature for generation during evaluation
+  generation_temperature: 0.7
+
+  # Top-p for generation during evaluation
+  generation_top_p: 0.9
+
+  # Tasks to evaluate on (for lm-eval harness)
+  # eval_tasks: ["mmlu", "hellaswag", "arc_challenge"]
