@@ -1,55 +1,79 @@
-NexusAI Feature Update - 4 New Features
-==========================================
+NexusAI V3 Update - 8 Features Added
+======================================
 
 WHAT'S NEW:
-1. /v1/chat/completions - OpenAI-compatible API endpoint
-2. Conversation History - saved to localStorage, persists on refresh
-3. Server-side Agent Tools - real calculator + datetime execution
-4. Rate Limit Fallback - auto-switches to smaller model if 7B is busy
+1. Streaming responses (SSE) - see AI reply in real-time
+2. Code syntax highlighting (react-syntax-highlighter)
+3. Code execution tool (Piston API, 20+ languages)
+4. Web search tool (Tavily + Wikipedia fallback)
+5. File upload (text, code, CSV, JSON files)
+6. Conversation export (download as .md)
+7. Error retry button (one-click retry on failures)
+8. Landing page updated to match REAL features (no fake claims)
+
+Also includes (from earlier, now properly integrated):
+- Conversation history (localStorage)
+- OpenAI-compatible /v1/chat/completions endpoint
+- Server-side agent tools with fallback models
+- Rate limit auto-fallback (7B -> 3B -> 0.5B)
 
 
-FILES TO ADD (3 new files):
+FILES TO UPDATE (replace entirely):
 
-1. src/app/api/v1/chat/completions/route.ts
-   -> Create folder: src/app/api/v1/chat/completions/
-   -> Paste v1-completions-route.ts as route.ts
+1. package.json
+   - Added: react-syntax-highlighter, remark-gfm, @types/react-syntax-highlighter
 
-2. src/lib/storage.ts
-   -> Paste as-is into src/lib/storage.ts
+2. src/app/api/chat/route.ts
+   - Streaming SSE support
+   - Rate limit fallback chain
+   - Server-side tool use loop
 
-3. src/lib/tools.ts
-   -> Paste as-is into src/lib/tools.ts
+3. src/app/chat/page.tsx
+   - Complete rewrite with all new features
+   - Streaming display, file upload, export, retry, history sidebar
+
+4. src/app/page.tsx
+   - Landing page now shows real features only
+   - No fake claims about 72B models, 12+ tools, etc.
 
 
-FILES TO REPLACE (2 files):
+NEW FILES TO ADD:
 
-4. src/app/api/chat/route.ts
-   -> Replace entire content with the provided route.ts
+5. src/components/chat-message.tsx
+   - Markdown renderer with syntax highlighting + copy button
 
-5. src/app/chat/page.tsx
-   -> Replace entire content with the provided page.tsx
+6. src/lib/tools.ts
+   - All 4 tool definitions + execution (calc, datetime, code, search)
+   - Piston API for code execution
+   - Tavily + Wikipedia for web search
 
+7. src/lib/storage.ts
+   - Conversation persistence (localStorage)
+   - (may already exist from v2, overwrite it)
+
+8. src/app/api/v1/chat/completions/route.ts
+   - OpenAI-compatible API endpoint
+   - (may already exist from v2, overwrite it)
 
 
 HOW TO APPLY:
 
-Option A (Easy - GitHub Web Editor):
-1. Go to https://github.com/Techgeek8000-byte/nexusai-website
-2. For each file above, click on it -> click pencil icon -> paste new content -> commit
-3. For new files, click "Add file" -> "Create new file" -> paste content
-4. Each commit triggers a Vercel redeploy
+Easiest: GitHub Web Editor
+1. Go to each file path on GitHub
+2. Click pencil, select all, delete, paste new content, commit
+3. Vercel auto-deploys each commit
 
-Option B (Git Bash):
-1. Copy each file to the correct path in your local repo
-2. git add -A
-3. git commit -m "feat: add API endpoint, conversation persistence, server-side tools, rate limit fallback"
-4. git push origin main
+For package.json: after updating, Vercel runs 'npm install' automatically.
+
+For file upload: create the 'src/components/' directory first if it doesn't exist.
 
 
-WHAT YOU'LL SEE:
-- Chat page now has a "History" sidebar with saved conversations
-- "New Chat" button to start fresh
-- Conversations auto-save and survive page refresh
-- /v1/chat/completions endpoint works with OpenAI SDK
-- If 7B model is rate-limited, it auto-falls back to 3B then 0.5B
-- Calculator and datetime tools run server-side (more reliable)
+OPTIONAL: Web Search
+- Works without any API key (Wikipedia fallback)
+- For full web search, add TAVILY_API_KEY to Vercel env vars
+- Free at tavily.com (1000 searches/month)
+
+
+OPTIONAL: Code Execution
+- Uses Piston API (free, no key needed)
+- Supports: Python, JS, TS, Go, Rust, C, C++, Java, Ruby, Bash, Swift, Kotlin, R, Lua, PHP

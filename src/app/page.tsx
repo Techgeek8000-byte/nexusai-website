@@ -22,19 +22,21 @@ interface Message {
 }
 
 const DEMO_RESPONSES: Record<string, string> = {
-  hello: "Hello! I'm NexusAI, a free open AI platform. I can help you with coding, research, writing, analysis, web browsing, file management, and much more. What would you like to do today?",
-  code: "Absolutely! I can write, debug, and execute code. For example, here's a Python function that finds prime numbers:\n\n```python\ndef find_primes(n: int) -> list[int]:\n    \"\"\"Find all prime numbers up to n.\"\"\"\n    primes = []\n    for num in range(2, n + 1):\n        if all(num % i != 0 for i in range(2, int(num**0.5) + 1)):\n            primes.append(num)\n    return primes\n```\n\nWant me to execute this or create something else?",
-  agent: "I can create and run autonomous AI agents! Agents are AI assistants that can:\n\n- Browse the web for real-time information\n- Execute code and analyze results\n- Manage files and documents\n- Query databases\n- Call external APIs\n- Chain multiple tools together\n\nThis is what makes NexusAI different from simple chatbots - I can actually DO things, not just talk about them.",
-  urdu: "Assalam-o-Alaikum! NexusAI Urdu mein bhi baat kar sakta hai. Main aapki madad kar sakta hoon coding, research, writing, aur bohat kuch mein. Aap mujh se kuch bhi pooch sakte hain!",
-  default: "That's a great question! As NexusAI, I'm designed to handle a wide range of tasks including coding, analysis, creative writing, research, and more. I use intelligent model routing to select the best AI model for your specific request. Feel free to ask me anything!"
+  hello: "Hi! This is a frontend demo of NexusAI. I can show you what the real chat at /chat does — multi-model conversations, code execution, web search, streaming responses, and file upload. Try asking about code, search, models, or files!",
+  code: "In the real NexusAI chat, you can write and execute code in 20+ languages using the Piston API. For example, send a Python snippet and it runs in a sandboxed environment. Try it at /chat!",
+  search: "NexusAI has web search powered by Tavily, with Wikipedia as a fallback. Ask the real AI anything current — it'll search the web and give you sourced answers. Head to /chat to try it.",
+  model: "NexusAI supports 4 Qwen 2.5 models (0.5B, 1.5B, 3B, 7B) that you can switch between in the chat. The API at /v1/chat/completions is OpenAI-compatible with streaming. Visit /chat to pick a model.",
+  file: "You can upload files directly in the NexusAI chat. The AI reads and analyzes them. Try uploading a .txt, .py, .json, or .md file at /chat.",
+  default: "This is a frontend demo — the responses are pre-written. For the real AI with multi-model chat, code execution, web search, and streaming, open the full chat at /chat."
 }
 
 function getDemoResponse(input: string): string {
   const lower = input.toLowerCase()
   if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey')) return DEMO_RESPONSES.hello
-  if (lower.includes('code') || lower.includes('python') || lower.includes('program')) return DEMO_RESPONSES.code
-  if (lower.includes('agent') || lower.includes('tool') || lower.includes('automat')) return DEMO_RESPONSES.agent
-  if (lower.includes('urdu') || lower.includes('اردو')) return DEMO_RESPONSES.urdu
+  if (lower.includes('code') || lower.includes('python') || lower.includes('program') || lower.includes('execute') || lower.includes('run')) return DEMO_RESPONSES.code
+  if (lower.includes('search') || lower.includes('web') || lower.includes('browse') || lower.includes('lookup')) return DEMO_RESPONSES.search
+  if (lower.includes('model') || lower.includes('qwen') || lower.includes('switch') || lower.includes('stream')) return DEMO_RESPONSES.model
+  if (lower.includes('file') || lower.includes('upload') || lower.includes('document')) return DEMO_RESPONSES.file
   return DEMO_RESPONSES.default
 }
 
@@ -42,63 +44,58 @@ function getDemoResponse(input: string): string {
 const FEATURES = [
   {
     icon: <BrainCircuit className="w-6 h-6" />,
-    title: "Multi-Model Intelligence",
-    description: "Intelligent routing across Qwen 2.5, Llama 3, and specialized models. Each query gets the optimal model for best results.",
-    tag: "AI Engine"
+    title: "Multi-Model Chat",
+    description: "Choose from 4 Qwen 2.5 models (0.5B, 1.5B, 3B, 7B) in the chat interface. Switch between them depending on your task.",
+    tag: "Live"
   },
   {
-    icon: <Sparkles className="w-6 h-6" />,
-    title: "Agent Framework",
-    description: "Create autonomous AI agents that browse, code, manage files, and orchestrate complex multi-step workflows automatically.",
-    tag: "Agents"
+    icon: <Zap className="w-6 h-6" />,
+    title: "Streaming Responses",
+    description: "Real-time token-by-token streaming via SSE. Watch the AI respond live, just like ChatGPT. Fast and responsive.",
+    tag: "Live"
+  },
+  {
+    icon: <Code2 className="w-6 h-6" />,
+    title: "Code Execution",
+    description: "Write and run code in 20+ languages using the Piston API. Sandbox-isolated execution with instant results.",
+    tag: "Live"
   },
   {
     icon: <Globe className="w-6 h-6" />,
+    title: "Web Search",
+    description: "Real-time web search powered by Tavily, with Wikipedia as a fallback. Get up-to-date answers with sources.",
+    tag: "Live"
+  },
+  {
+    icon: <Network className="w-6 h-6" />,
     title: "OpenAI-Compatible API",
-    description: "Drop-in replacement for OpenAI API. Switch with one line of code. Full chat, embeddings, and function calling support.",
-    tag: "API"
+    description: "Use /v1/chat/completions with any OpenAI SDK. Switch the base URL and it works. Streaming included.",
+    tag: "Live"
   },
   {
     icon: <Shield className="w-6 h-6" />,
-    title: "Completely Free",
-    description: "Zero cost AI platform. No subscriptions, no rate limits that lock you out. Built on free infrastructure and open-source models.",
+    title: "100% Free",
+    description: "No cost, no API key required, no subscriptions. Powered by free-tier infrastructure and open-source models.",
     tag: "Free"
-  },
-  {
-    icon: <Lock className="w-6 h-6" />,
-    title: "Privacy First",
-    description: "Your data stays yours. PII detection, user-controlled retention, and encrypted storage. No training on your conversations.",
-    tag: "Security"
-  },
-  {
-    icon: <Layers className="w-6 h-6" />,
-    title: "Partially Open Source",
-    description: "Core platform is open-source. Community can audit, improve, and extend. Premium features fund sustainable development.",
-    tag: "Open Source"
   }
 ]
 
 const STATS = [
-  { value: "0$", label: "Cost to Start", desc: "Completely free infrastructure" },
-  { value: "6+", label: "AI Models", desc: "Intelligent multi-model routing" },
-  { value: "12+", label: "Built-in Tools", desc: "Web, code, files, APIs and more" },
-  { value: "2", label: "Languages", desc: "English and Urdu native support" }
+  { value: "$0", label: "Cost", desc: "Completely free to use" },
+  { value: "4", label: "AI Models", desc: "Qwen 2.5 family" },
+  { value: "4", label: "Agent Tools", desc: "Calculator, datetime, code, search" },
+  { value: "2", label: "Languages", desc: "English and Urdu support" }
 ]
 
 const API_ENDPOINTS = [
-  { method: 'POST', path: '/v1/chat/completions', desc: 'Generate chat completions with streaming' },
-  { method: 'POST', path: '/v1/embeddings', desc: 'Generate text embeddings for RAG' },
-  { method: 'GET', path: '/v1/models', desc: 'List all available models' },
-  { method: 'POST', path: '/v1/agents/run', desc: 'Execute autonomous agent tasks' },
-  { method: 'GET', path: '/v1/tools', desc: 'List all available tools and schemas' },
-  { method: 'POST', path: '/v1/files/upload', desc: 'Upload files for analysis or RAG' },
+  { method: 'POST', path: '/v1/chat/completions', desc: 'Chat completions with streaming' },
 ]
 
 // ━━━ Main Component ━━━
 export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
-    { id: 1, role: 'assistant', content: "Hello! I'm NexusAI. Try asking me to write code, explain agents, say hello in Urdu, or anything else!" }
+    { id: 1, role: 'assistant', content: "Hi! This is a frontend demo — responses are pre-written. For the real AI with multi-model chat, code execution, web search, and streaming, open the full chat at /chat." }
   ])
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
@@ -203,8 +200,7 @@ export default function Home() {
               </h1>
 
               <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-                NexusAI is a free, open AI platform with autonomous agents, OpenAI-compatible API, and
-                multi-model intelligence. Rival Z.ai, Gemini, and Grok — without the price tag.
+                NexusAI is a free AI platform with multi-model chat, code execution, web search, and streaming responses. Powered by Qwen 2.5.
               </p>
 
               <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -236,7 +232,7 @@ export default function Home() {
             <div className="text-center max-w-2xl mx-auto mb-16">
               <Badge variant="secondary" className="mb-4">Platform Features</Badge>
               <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
-                Everything You Need to Build AI
+                Real Features, Not Promises
               </h2>
               <p className="mt-4 text-muted-foreground text-lg">
                 From intelligent chat to autonomous agents, NexusAI provides a complete platform for building AI-powered applications.
@@ -275,7 +271,7 @@ export default function Home() {
                 Try NexusAI Right Now
               </h2>
               <p className="mt-4 text-muted-foreground text-lg">
-                Interactive demo showcasing agent capabilities, code generation, and bilingual support.
+                This is a frontend demo. For the real AI, open the full chat.
               </p>
             </div>
 
@@ -288,7 +284,7 @@ export default function Home() {
                     </div>
                     <div>
                       <CardTitle className="text-base">NexusAI Chat</CardTitle>
-                      <CardDescription className="text-xs">Powered by Qwen 2.5 72B</CardDescription>
+                      <CardDescription className="text-xs">Powered by Qwen 2.5 7B</CardDescription>
                     </div>
                     <Badge className="ml-auto bg-emerald-100 text-emerald-700">Online</Badge>
                   </div>
@@ -336,7 +332,7 @@ export default function Home() {
 
                   {/* Quick Prompts */}
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {['Write Python code', 'What can agents do?', 'Urdu mein baat karo', 'Hello!'].map(prompt => (
+                    {['Write Python code', 'Web search', 'What models are available?', 'Upload a file'].map(prompt => (
                       <Button
                         key={prompt}
                         variant="outline"
@@ -377,15 +373,14 @@ export default function Home() {
                 OpenAI-Compatible API
               </h2>
               <p className="mt-4 text-muted-foreground text-lg">
-                Switch from OpenAI with one line of code. Full chat, embeddings, agents, and tools support.
+                Switch from OpenAI with one line. Streaming included.
               </p>
             </div>
 
             <Tabs defaultValue="endpoints" className="max-w-4xl mx-auto">
-              <TabsList className="grid w-full grid-cols-3 mb-8">
+              <TabsList className="grid w-full grid-cols-2 mb-8">
                 <TabsTrigger value="endpoints">Endpoints</TabsTrigger>
                 <TabsTrigger value="quickstart">Quick Start</TabsTrigger>
-                <TabsTrigger value="pricing">Pricing</TabsTrigger>
               </TabsList>
 
               <TabsContent value="endpoints">
@@ -394,7 +389,7 @@ export default function Home() {
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Network className="w-5 h-5 text-teal-600" /> API Endpoints
                     </CardTitle>
-                    <CardDescription>All endpoints are OpenAI-compatible</CardDescription>
+                    <CardDescription>OpenAI-compatible endpoint</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
@@ -427,12 +422,12 @@ export default function Home() {
 pip install openai
 
 # Switch from OpenAI to NexusAI (one line!)
-openai.base_url = "https://api.nexusai.dev/v1"
-openai.api_key = "nx-free-your-key"
+openai.base_url = "https://your-vercel-url.vercel.app/v1"
+openai.api_key = "any-value"
 
 # Chat completion - works exactly like OpenAI
 response = openai.chat.completions.create(
-    model="qwen-2.5-72b",
+    model="Qwen/Qwen2.5-7B-Instruct",
     messages=[
         {"role": "user", "content": "Hello NexusAI!"}
     ],
@@ -446,45 +441,8 @@ for chunk in response:
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="outline" className="text-xs"><Check className="w-3 h-3 mr-1" /> Drop-in replacement</Badge>
                         <Badge variant="outline" className="text-xs"><Check className="w-3 h-3 mr-1" /> Streaming support</Badge>
-                        <Badge variant="outline" className="text-xs"><Check className="w-3 h-3 mr-1" /> Function calling</Badge>
+                        <Badge variant="outline" className="text-xs"><Check className="w-3 h-3 mr-1" /> No API key needed</Badge>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="pricing">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Cpu className="w-5 h-5 text-teal-600" /> Pricing Plans
-                    </CardTitle>
-                    <CardDescription>Start free. Scale when ready.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid sm:grid-cols-3 gap-4">
-                      {[
-                        { name: 'Free', price: '$0', features: ['60 req/min', 'All models', '5 agent tools', 'Community support'], highlight: false },
-                        { name: 'Developer', price: '$0', features: ['200 req/min', 'Priority models', 'All 12 tools', 'API docs access'], highlight: true },
-                        { name: 'Enterprise', price: 'Custom', features: ['Unlimited', 'Custom models', 'On-premise deploy', 'SLA guarantee'], highlight: false }
-                      ].map(plan => (
-                        <div key={plan.name} className={`p-4 rounded-xl border-2 ${
-                          plan.highlight ? 'border-teal-500 bg-teal-50/50' : 'border-border'
-                        }`}>
-                          <div className="text-lg font-bold">{plan.name}</div>
-                          <div className="text-3xl font-extrabold mt-1 text-teal-600">{plan.price}<span className="text-sm font-normal text-muted-foreground">/mo</span></div>
-                          <ul className="mt-4 space-y-2">
-                            {plan.features.map(f => (
-                              <li key={f} className="flex items-center gap-2 text-sm">
-                                <Check className="w-4 h-4 text-teal-600" /> {f}
-                              </li>
-                            ))}
-                          </ul>
-                          <Button size="sm" className={`w-full mt-4 ${plan.highlight ? 'bg-teal-600 hover:bg-teal-700 text-white' : ''}`} variant={plan.highlight ? 'default' : 'outline'}>
-                            {plan.highlight ? 'Get Started Free' : 'Contact Us'}
-                          </Button>
-                        </div>
-                      ))}
                     </div>
                   </CardContent>
                 </Card>
@@ -505,10 +463,10 @@ for chunk in response:
 
             <div className="max-w-3xl mx-auto space-y-6">
               {[
-                { phase: 'Phase 1', title: 'Foundation', timeline: 'Weeks 1-6', items: ['Deploy Qwen 2.5 72B on free GPU', 'Build FastAPI server with chat API', 'Basic web dashboard', 'Docker deployment', 'Rate limiting and auth'], status: 'current' },
-                { phase: 'Phase 2', title: 'Intelligence', timeline: 'Weeks 7-14', items: ['Agent framework with 5+ tools', 'Three-tier memory system', 'RAG pipeline with Qdrant', 'Code execution sandbox', 'Web search capability'], status: 'upcoming' },
-                { phase: 'Phase 3', title: 'Platform', timeline: 'Weeks 15-24', items: ['Full API documentation and SDK', 'Agent builder UI', 'Multi-model routing', 'User accounts and analytics', 'Developer community'], status: 'upcoming' },
-                { phase: 'Phase 4', title: 'Ecosystem', timeline: 'Month 7+', items: ['Agent marketplace', 'Fine-tuned custom model', 'Community GPU network', 'Enterprise features', 'Mobile SDK'], status: 'upcoming' }
+                { phase: 'Phase 1', title: 'Foundation', timeline: 'Done', items: ['Multi-model chat (4 Qwen models)', 'Streaming responses (SSE)', 'Conversation history', 'OpenAI-compatible API endpoint', 'Rate limit with fallback'], status: 'current' },
+                { phase: 'Phase 2', title: 'Agent Tools', timeline: 'Done', items: ['Calculator tool', 'Datetime tool', 'Code execution (Piston API)', 'Web search (Tavily + Wikipedia)', 'File upload and analysis'], status: 'current' },
+                { phase: 'Phase 3', title: 'UX Polish', timeline: 'Next', items: ['User accounts', 'Cloud conversation sync', 'Syntax highlighting', 'Dark theme', 'PWA support'], status: 'upcoming' },
+                { phase: 'Phase 4', title: 'Custom Models', timeline: 'Future', items: ['Fine-tuned models', 'Urdu-optimized model', 'Domain-specific models', 'Model evaluation benchmarks', 'Community model sharing'], status: 'upcoming' }
               ].map((phase, idx) => (
                 <Card key={phase.phase} className="border-border/50">
                   <CardHeader className="pb-3">
@@ -525,7 +483,7 @@ for chunk in response:
                         </div>
                       </div>
                       {phase.status === 'current' && (
-                        <Badge className="bg-teal-100 text-teal-700">In Progress</Badge>
+                        <Badge className="bg-teal-100 text-teal-700">Done</Badge>
                       )}
                     </div>
                   </CardHeader>
@@ -579,8 +537,7 @@ for chunk in response:
                 <span className="text-lg font-bold">Nexus<span className="text-teal-600">AI</span></span>
               </div>
               <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
-                A free, open AI platform with autonomous agents, OpenAI-compatible API, and multi-model intelligence.
-                Building the future of AI accessibility.
+                A free AI platform with multi-model chat, code execution, web search, and streaming responses. Powered by Qwen 2.5 on free-tier infrastructure.
               </p>
               <p className="text-xs text-muted-foreground mt-4 font-medium">A Project by Osama</p>
             </div>
@@ -605,7 +562,7 @@ for chunk in response:
           </div>
           <div className="mt-12 pt-6 border-t border-border/50 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-xs text-muted-foreground">
-              NexusAI - Open AI Platform. Free and open source.
+              NexusAI - Free AI Platform. Open source.
             </p>
             <p className="text-xs text-muted-foreground">
               Built with love by Osama
