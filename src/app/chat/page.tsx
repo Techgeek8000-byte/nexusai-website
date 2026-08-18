@@ -2,14 +2,24 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   Bot, Send, Trash2, ArrowLeft, Settings2, Code2, Search, Hash, Calculator,
   Loader2, ChevronLeft, ChevronRight, Sparkles, Wrench, FileText, Download,
-  Plus, MessageSquare, Clock, Upload, FileDown, RefreshCw, Terminal, Globe
+  Plus, MessageSquare, Clock, Upload, FileDown, RefreshCw, Terminal, Globe, Cpu, Lightbulb, BookOpen, PenTool
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ChatMessageBubble } from '@/components/chat-message'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { detectToolsClient } from '@/lib/tools'
+import {
+  rateResponse as rateResponseStore,
+  getAdaptivePrompt,
+  compressContext,
+  getInsights,
+  resetLearning,
+  type LearningInsights,
+} from '@/lib/self-improve'
 import {
   type SavedConversation, loadConversations, saveConversation,
   deleteConversation, getActiveConversationId, setActiveConversationId,
@@ -22,6 +32,7 @@ interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   isError?: boolean
+  model?: string
 }
 
 interface LastRequest {
@@ -43,6 +54,15 @@ const QUICK_ACTIONS = [
   { label: 'Math', icon: <Calculator className="w-4 h-4" />, prompt: 'Calculate: (25 * 14) + (376 / 4)' },
 ]
 
+const EMPTY_STATE_PROMPTS = [
+  { icon: <Lightbulb className="w-4 h-4" />, text: 'Explain quantum computing in simple terms' },
+  { icon: <Code2 className="w-4 h-4" />, text: 'Write a Python web scraper' },
+  { icon: <Globe className="w-4 h-4" />, text: 'What is the latest AI news?' },
+  { icon: <BookOpen className="w-4 h-4" />, text: 'Summarize the history of the internet' },
+  { icon: <PenTool className="w-4 h-4" />, text: 'Write a professional email to a client' },
+  { icon: <Terminal className="w-4 h-4" />, text: 'Run JavaScript code to sort an array' },
+]
+
 const DEFAULT_SYSTEM_PROMPT = (
   'You are NexusAI, a helpful, knowledgeable AI assistant created by Osama. '
   + 'You respond fluently in both English and Urdu. '
@@ -53,6 +73,7 @@ const DEFAULT_SYSTEM_PROMPT = (
 
 // ━━━ Main Component ━━━
 export default function ChatPage() {
+  const searchParams = useSearchParams()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -72,6 +93,32 @@ export default function ChatPage() {
   const msgIdCounter = useRef(0)
   const lastRequestRef = useRef<LastRequest | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const [insights, setInsights] = useState<LearningInsights | null>(null)
+  const [responseModel, setResponseModel] = useState<string>('')
+  const ratingsRef = useRef<Map<number, 1 | -1>>(new Map())
+
+  // ── Handle ?prompt= from landing page ──
+  useEffect(() => {
+    const urlPrompt = searchParams.get('prompt')
+    if (urlPrompt) {
+      setPendingPrompt(urlPrompt)
+    }
+  }, [searchParams])
+
+  // ── Load insights for settings panel ──
+  useEffect(() => {
+    if (settingsOpen) setInsights(getInsights())
+  }, [settingsOpen])
+
+  // ── Handle rate response ──
+  const handleRate = useCallback((msgId: number, rating: 1 | -1) => {
+    const msg = messages.find(m => m.id === msgId)
+    if (!msg || msg.role !== 'assistant') return
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
+    rateResponseStore(lastUserMsg?.content || '', msg.content, rating, selectedModel)
+    ratingsRef.current.set(msgId, rating)
+    setInsights(getInsights())
+  }, [messages, selectedModel])
 
   // ── Load conversations on mount ──
   useEffect(() => {
@@ -205,18 +252,21 @@ export default function ChatPage() {
     // Detect quick tools
     const toolResults = detectToolsClient(messageText)
 
-    // Build API messages
-    const apiMessages = [
-      { role: 'system' as const, content: systemPrompt },
+    // Build API messages with adaptive prompt + context compression
+    const adaptivePrompt = getAdaptivePrompt(systemPrompt)
+    const rawApiMessages = [
+      { role: 'system' as const, content: adaptivePrompt },
       ...updatedMessages.filter(m => m.role !== 'system').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ]
     // Replace last user message with full content if file was attached
     if (attachedFile || (fullContent !== messageText)) {
-      const lastUserIdx = apiMessages.length - 1
-      if (apiMessages[lastUserIdx].role === 'user') {
-        apiMessages[lastUserIdx].content = fullContent
+      const lastUserIdx = rawApiMessages.length - 1
+      if (rawApiMessages[lastUserIdx].role === 'user') {
+        rawApiMessages[lastUserIdx].content = fullContent
       }
     }
+    // Compress long conversations
+    const { messages: apiMessages } = compressContext(rawApiMessages)
 
     // Save for retry
     lastRequestRef.current = { text: messageText, messages: updatedMessages }
@@ -275,11 +325,11 @@ export default function ChatPage() {
                 fullContent = parsed.error
                 break
               }
-              if (parsed.model) continue // skip model event
+              if (parsed.model) { setResponseModel(parsed.model); continue }
               const delta = parsed.choices?.[0]?.delta?.content
               if (delta) {
                 fullContent += delta
-                setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m))
+                setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent, model: responseModel } : m))
               }
             } catch { /* skip */ }
           }
@@ -367,9 +417,9 @@ export default function ChatPage() {
             try {
               const parsed = JSON.parse(data)
               if (parsed.error) { setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: parsed.error, isError: true } : m)); fullContent = parsed.error; break }
-              if (parsed.model) continue
+              if (parsed.model) { setResponseModel(parsed.model); continue }
               const delta = parsed.choices?.[0]?.delta?.content
-              if (delta) { fullContent += delta; setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m)) }
+              if (delta) { fullContent += delta; setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent, model: responseModel } : m)) }
             } catch { /* skip */ }
           }
         }
@@ -410,6 +460,7 @@ export default function ChatPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <ThemeToggle />
           <Button variant="ghost" size="sm" onClick={handleExport} disabled={messages.length === 0} className="gap-1.5 text-muted-foreground" title="Export chat">
             <FileDown className="w-4 h-4" />
             <span className="hidden sm:inline">Export</span>
@@ -511,6 +562,57 @@ export default function ChatPage() {
               </div>
               <hr className="border-border/50" />
               <div>
+                <div className="flex items-center gap-1.5 mb-3">
+                  <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Self-Improvement</label>
+                </div>
+                {insights && insights.totalRated > 0 ? (
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Feedback given</span>
+                      <span className="font-mono text-foreground">{insights.totalRated} ratings</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Accuracy</span>
+                      <span className="font-mono text-emerald-600">{Math.round(insights.avgRating * 100)}%</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Learned style</span>
+                      <span className="font-mono capitalize text-foreground">{insights.stylePreference}</span>
+                    </div>
+                    {insights.totalSavedTokens > 0 && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Tokens saved</span>
+                        <span className="font-mono text-teal-600">~{insights.totalSavedTokens.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {insights.topCategories.length > 0 && (
+                      <div className="mt-1">
+                        <span className="text-muted-foreground block mb-1">Strongest topics</span>
+                        <div className="flex flex-wrap gap-1">
+                          {insights.topCategories.slice(0, 3).map(c => (
+                            <span key={c.category} className="px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 text-[10px] capitalize">
+                              {c.category} {Math.round(c.score * 100)}%
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { resetLearning(); setInsights(getInsights()); ratingsRef.current.clear() }}
+                      className="w-full mt-2 px-3 py-1.5 text-xs rounded-md border border-red-200 dark:border-red-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    >
+                      Reset learning data
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Rate responses with thumbs up/down to teach NexusAI your preferences. It adapts its style, context, and prompts based on your feedback.
+                  </p>
+                )}
+              </div>
+              <hr className="border-border/50" />
+              <div>
                 <div className="flex items-center gap-1.5 mb-2">
                   <FileText className="w-3.5 h-3.5 text-muted-foreground" />
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resources</label>
@@ -545,18 +647,24 @@ export default function ChatPage() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-6">
             {messages.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-center">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center mb-4">
+              <div className="h-full flex flex-col items-center justify-center text-center px-4">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center mb-4 shadow-lg shadow-teal-500/20">
                   <Bot className="w-8 h-8 text-white" />
                 </div>
-                <h2 className="text-xl font-bold">NexusAI Chat</h2>
-                <p className="text-sm text-muted-foreground mt-2 max-w-sm">
-                  Free multi-model AI chat with code execution, web search, and more. Conversations are saved automatically.
+                <h2 className="text-xl font-bold">What can I help with?</h2>
+                <p className="text-sm text-muted-foreground mt-2 max-w-md">
+                  Free multi-model AI chat with code execution, web search, file analysis, and more. Pick a suggestion or type anything below.
                 </p>
-                <div className="flex flex-wrap justify-center gap-2 mt-6">
-                  {QUICK_ACTIONS.map(qa => (
-                    <button key={qa.label} onClick={() => setPendingPrompt(qa.prompt)} className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-full border border-border bg-background hover:bg-muted transition-colors">
-                      {qa.icon} {qa.label}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-8 max-w-lg w-full">
+                  {EMPTY_STATE_PROMPTS.map((p, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setPendingPrompt(p.text)}
+                      disabled={isLoading}
+                      className="flex items-center gap-3 px-4 py-3 text-sm text-left rounded-xl border border-border/50 bg-card hover:bg-muted hover:border-teal-200 dark:hover:border-teal-800 transition-all disabled:opacity-50 group"
+                    >
+                      <span className="text-muted-foreground group-hover:text-teal-600 transition-colors">{p.icon}</span>
+                      <span className="text-muted-foreground group-hover:text-foreground transition-colors">{p.text}</span>
                     </button>
                   ))}
                 </div>
@@ -575,6 +683,11 @@ export default function ChatPage() {
                   role={msg.role as 'user' | 'assistant'}
                   isError={msg.isError}
                   onRetry={msg.isError ? handleRetry : undefined}
+                  messageId={msg.id}
+                  showRating={msg.role === 'assistant' && !msg.isError}
+                  onRate={(r) => handleRate(msg.id, r)}
+                  currentRating={ratingsRef.current.get(msg.id) ?? null}
+                  model={msg.model}
                 />
               </div>
             ))}
@@ -639,7 +752,7 @@ export default function ChatPage() {
             )}
 
             <p className="text-center text-[11px] text-muted-foreground mt-2">
-              Streaming responses | Code execution via Piston API | Conversations saved locally
+              NexusAI &middot; {selectedModel.split('(')[0].trim()} &middot; Free &middot; No signup
             </p>
           </div>
         </main>
