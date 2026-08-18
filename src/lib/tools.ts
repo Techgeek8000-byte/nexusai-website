@@ -1,4 +1,5 @@
-
+// ━━━ Tool Definitions (sent to model for function calling) ━━━
+export const TOOL_DEFINITIONS = [
   {
     type: "function" as const,
     function: {
