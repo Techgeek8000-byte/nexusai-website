@@ -294,7 +294,7 @@ export function compressContext(messages: any[]): ContextResult {
     role: 'system' as const,
     content: (
       `[Compressed context: ${oldMsgs.length} earlier messages summarized for efficiency. ` +
-      `Recent ${recentMsgs.length} messages below are in full.]\n\n' +
+      `Recent ${recentMsgs.length} messages below are in full.]\n\n` +
       summaryLines.join('\n\n')
     ),
   }
