@@ -1,10 +1,4 @@
-import { exec } from "child_process";
-import { promisify } from "util";
 
-const execAsync = promisify(exec);
-
-// ━━━ Tool Definitions (sent to model for function calling) ━━━
-export const TOOL_DEFINITIONS = [
   {
     type: "function" as const,
     function: {
