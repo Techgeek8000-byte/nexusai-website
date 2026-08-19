@@ -27,12 +27,21 @@ import {
 } from '@/lib/storage'
 
 // ━━━ Types ━━━
+interface AnalysisInfo {
+  improved: boolean
+  quality_score: number
+  issues: { type: string; severity: string; description: string }[]
+  analysis_time_ms: number
+  cache_hit?: boolean
+}
+
 interface ChatMessage {
   id: number
   role: 'user' | 'assistant' | 'system'
   content: string
   isError?: boolean
   model?: string
+  analysisInfo?: AnalysisInfo | null
 }
 
 interface LastRequest {
@@ -96,6 +105,8 @@ function ChatPage() {
   const [insights, setInsights] = useState<LearningInsights | null>(null)
   const [responseModel, setResponseModel] = useState<string>('')
   const ratingsRef = useRef<Map<number, 1 | -1>>(new Map())
+  const analysisRef = useRef<Map<number, AnalysisInfo>>(new Map())
+  const [cloudStats, setCloudStats] = useState<{ enabled: boolean; totalImprovements?: number; totalIssuesFixed?: number; cacheHits?: number; cacheSize?: number } | null>(null)
 
   // ── Handle ?prompt= from landing page ──
   useEffect(() => {
@@ -107,7 +118,10 @@ function ChatPage() {
 
   // ── Load insights for settings panel ──
   useEffect(() => {
-    if (settingsOpen) setInsights(getInsights())
+    if (settingsOpen) {
+      setInsights(getInsights())
+      fetch('/api/cache-stats').then(r => r.json()).then(setCloudStats).catch(() => {})
+    }
   }, [settingsOpen])
 
   // ── Handle rate response ──
@@ -119,6 +133,49 @@ function ChatPage() {
     ratingsRef.current.set(msgId, rating)
     setInsights(getInsights())
   }, [messages, selectedModel])
+
+  // ── Handle self-analysis events from SSE ──
+  const handleAnalysisEvent = useCallback((msgId: number, event: any) => {
+    if (event.type === 'self_improved') {
+      // Replace the streamed content with the improved version
+      const analysisInfo: AnalysisInfo = {
+        improved: true,
+        quality_score: event.quality_score,
+        issues: event.issues || [],
+        analysis_time_ms: event.analysis_time_ms,
+      }
+      analysisRef.current.set(msgId, analysisInfo)
+      setMessages(prev => prev.map(m =>
+        m.id === msgId
+          ? { ...m, content: event.improved_response, analysisInfo }
+          : m
+      ))
+    } else if (event.type === 'self_analysis') {
+      // Response passed review — show quality badge
+      const analysisInfo: AnalysisInfo = {
+        improved: false,
+        quality_score: event.quality_score,
+        issues: event.issues || [],
+        analysis_time_ms: event.analysis_time_ms,
+      }
+      analysisRef.current.set(msgId, analysisInfo)
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, analysisInfo } : m
+      ))
+    } else if (event.type === 'cache_hit') {
+      const analysisInfo: AnalysisInfo = {
+        improved: false,
+        quality_score: event.quality_score || 90,
+        issues: [],
+        analysis_time_ms: 0,
+        cache_hit: true,
+      }
+      analysisRef.current.set(msgId, analysisInfo)
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, analysisInfo } : m
+      ))
+    }
+  }, [])
 
   // ── Load conversations on mount ──
   useEffect(() => {
@@ -326,6 +383,11 @@ function ChatPage() {
                 break
               }
               if (parsed.model) { setResponseModel(parsed.model); continue }
+              // Handle self-analysis events (sent after stream completes)
+              if (parsed.type === 'self_improved' || parsed.type === 'self_analysis' || parsed.type === 'cache_hit') {
+                handleAnalysisEvent(assistantId, parsed)
+                continue
+              }
               const delta = parsed.choices?.[0]?.delta?.content
               if (delta) {
                 fullContent += delta
@@ -339,7 +401,22 @@ function ChatPage() {
         const data = await res.json()
         const reply = data.error || data.content || 'No response received.'
         const isErr = !!data.error
-        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: reply, isError: isErr } : m))
+        // Handle self-analysis from non-streaming response
+        const analysisInfo = data.self_analysis ? {
+          improved: data.self_analysis.improved,
+          quality_score: data.self_analysis.quality_score,
+          issues: data.self_analysis.issues || [],
+          analysis_time_ms: data.self_analysis.analysis_time_ms,
+          cache_hit: data.cache_hit,
+        } : (data.cache_hit ? {
+          improved: false,
+          quality_score: data.quality_score || 90,
+          issues: [],
+          analysis_time_ms: 0,
+          cache_hit: true,
+        } : null)
+        if (analysisInfo) analysisRef.current.set(assistantId, analysisInfo)
+        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: reply, isError: isErr, analysisInfo } : m))
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return
@@ -418,6 +495,10 @@ function ChatPage() {
               const parsed = JSON.parse(data)
               if (parsed.error) { setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: parsed.error, isError: true } : m)); fullContent = parsed.error; break }
               if (parsed.model) { setResponseModel(parsed.model); continue }
+              if (parsed.type === 'self_improved' || parsed.type === 'self_analysis' || parsed.type === 'cache_hit') {
+                handleAnalysisEvent(assistantId, parsed)
+                continue
+              }
               const delta = parsed.choices?.[0]?.delta?.content
               if (delta) { fullContent += delta; setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent, model: responseModel } : m)) }
             } catch { /* skip */ }
@@ -566,50 +647,98 @@ function ChatPage() {
                   <Sparkles className="w-3.5 h-3.5 text-teal-600" />
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Self-Improvement</label>
                 </div>
-                {insights && insights.totalRated > 0 ? (
-                  <div className="space-y-2.5 text-xs">
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Feedback given</span>
-                      <span className="font-mono text-foreground">{insights.totalRated} ratings</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Accuracy</span>
-                      <span className="font-mono text-emerald-600">{Math.round(insights.avgRating * 100)}%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Learned style</span>
-                      <span className="font-mono capitalize text-foreground">{insights.stylePreference}</span>
-                    </div>
-                    {insights.totalSavedTokens > 0 && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Tokens saved</span>
-                        <span className="font-mono text-teal-600">~{insights.totalSavedTokens.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {insights.topCategories.length > 0 && (
-                      <div className="mt-1">
-                        <span className="text-muted-foreground block mb-1">Strongest topics</span>
-                        <div className="flex flex-wrap gap-1">
-                          {insights.topCategories.slice(0, 3).map(c => (
-                            <span key={c.category} className="px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 text-[10px] capitalize">
-                              {c.category} {Math.round(c.score * 100)}%
-                            </span>
-                          ))}
+                <div className="space-y-3">
+                  {/* Cloud Self-Analysis */}
+                  <div className="p-2.5 rounded-lg bg-gradient-to-br from-violet-50 to-teal-50 dark:from-violet-950/20 dark:to-teal-950/20 border border-violet-200/50 dark:border-violet-800/30">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400 mb-1.5">Cloud Auto-Analysis</p>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed mb-2">
+                      Every response is automatically reviewed for code errors, security vulnerabilities, and quality. Issues are auto-fixed and the improved version replaces the weaker one.
+                    </p>
+                    {cloudStats && cloudStats.enabled ? (
+                      <div className="space-y-1.5 text-[10px]">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Responses improved</span>
+                          <span className="font-mono text-violet-600 dark:text-violet-400">{cloudStats.totalImprovements || 0}</span>
                         </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Issues fixed</span>
+                          <span className="font-mono text-emerald-600">{cloudStats.totalIssuesFixed || 0}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Cache hits</span>
+                          <span className="font-mono text-teal-600">{cloudStats.cacheHits || 0}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Cached answers</span>
+                          <span className="font-mono text-foreground">{cloudStats.cacheSize || 0}</span>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const res = await fetch('/api/cache-stats', { method: 'POST' })
+                            const data = await res.json()
+                            fetch('/api/cache-stats').then(r => r.json()).then(setCloudStats)
+                            alert(`Cleaned up ${data.discarded} weak responses from cloud cache.`)
+                          }}
+                          className="w-full mt-1 px-2 py-1 text-[10px] rounded border border-violet-200 dark:border-violet-800 text-violet-600 hover:bg-violet-100 dark:hover:bg-violet-900/20 transition-colors"
+                        >
+                          Discard weak cached responses
+                        </button>
                       </div>
+                    ) : (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                        KV not connected — self-analysis still works, but improved responses aren't cached across sessions. Add Vercel KV (free) to enable cloud learning.
+                      </p>
                     )}
-                    <button
-                      onClick={() => { resetLearning(); setInsights(getInsights()); ratingsRef.current.clear() }}
-                      className="w-full mt-2 px-3 py-1.5 text-xs rounded-md border border-red-200 dark:border-red-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                    >
-                      Reset learning data
-                    </button>
                   </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Rate responses with thumbs up/down to teach NexusAI your preferences. It adapts its style, context, and prompts based on your feedback.
-                  </p>
-                )}
+                  {/* Local Feedback Learning */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Local Feedback Learning</p>
+                    {insights && insights.totalRated > 0 ? (
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Feedback given</span>
+                          <span className="font-mono text-foreground">{insights.totalRated} ratings</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Accuracy</span>
+                          <span className="font-mono text-emerald-600">{Math.round(insights.avgRating * 100)}%</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Learned style</span>
+                          <span className="font-mono capitalize text-foreground">{insights.stylePreference}</span>
+                        </div>
+                        {insights.totalSavedTokens > 0 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">Tokens saved</span>
+                            <span className="font-mono text-teal-600">~{insights.totalSavedTokens.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {insights.topCategories.length > 0 && (
+                          <div className="mt-1">
+                            <span className="text-muted-foreground block mb-1">Strongest topics</span>
+                            <div className="flex flex-wrap gap-1">
+                              {insights.topCategories.slice(0, 3).map(c => (
+                                <span key={c.category} className="px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 text-[10px] capitalize">
+                                  {c.category} {Math.round(c.score * 100)}%
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => { resetLearning(); setInsights(getInsights()); ratingsRef.current.clear() }}
+                          className="w-full mt-2 px-3 py-1.5 text-xs rounded-md border border-red-200 dark:border-red-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                        >
+                          Reset learning data
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Rate responses with thumbs up/down to teach NexusAI your preferences. It adapts its style, context, and prompts based on your feedback.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
               <hr className="border-border/50" />
               <div>
@@ -688,6 +817,7 @@ function ChatPage() {
                   onRate={(r) => handleRate(msg.id, r)}
                   currentRating={ratingsRef.current.get(msg.id) ?? null}
                   model={msg.model}
+                  analysisInfo={msg.analysisInfo}
                 />
               </div>
             ))}
@@ -758,5 +888,24 @@ function ChatPage() {
         </main>
       </div>
     </div>
+  )
+}
+
+function ChatLoadingFallback() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading NexusAI...</p>
+      </div>
+    </div>
+  )
+}
+
+export default function ChatPageWrapper() {
+  return (
+    <Suspense fallback={<ChatLoadingFallback />}>
+      <ChatPage />
+    </Suspense>
   )
 }

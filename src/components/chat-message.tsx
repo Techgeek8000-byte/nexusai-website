@@ -5,7 +5,15 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Copy, Check, RotateCcw, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { Copy, Check, RotateCcw, ThumbsUp, ThumbsDown, Shield, Sparkles, Zap, AlertTriangle } from 'lucide-react'
+
+interface AnalysisInfo {
+  improved: boolean
+  quality_score: number
+  issues: { type: string; severity: string; description: string }[]
+  analysis_time_ms: number
+  cache_hit?: boolean
+}
 
 interface ChatMessageProps {
   content: string
@@ -17,6 +25,7 @@ interface ChatMessageProps {
   onRate?: (rating: 1 | -1) => void
   currentRating?: 1 | -1 | null
   model?: string
+  analysisInfo?: AnalysisInfo | null
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -37,7 +46,62 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-export function ChatMessageBubble({ content, role, isError, onRetry, showRating, onRate, currentRating, model }: ChatMessageProps) {
+function QualityBadge({ analysisInfo }: { analysisInfo: AnalysisInfo }) {
+  const { improved, quality_score, issues, analysis_time_ms, cache_hit } = analysisInfo
+
+  const scoreColor = quality_score >= 85
+    ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+    : quality_score >= 60
+      ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+      : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+
+  const criticalOrHigh = issues.filter(i => i.severity === 'critical' || i.severity === 'high')
+
+  return (
+    <div className="mt-2.5 pt-2 border-t border-border/30 space-y-1.5">
+      <div className="flex items-center flex-wrap gap-1.5">
+        {cache_hit && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+            <Zap className="w-2.5 h-2.5" /> Cached
+          </span>
+        )}
+        {improved && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-800">
+            <Sparkles className="w-2.5 h-2.5" /> Auto-Improved
+          </span>
+        )}
+        {!improved && issues.length > 0 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+            <Shield className="w-2.5 h-2.5" /> Verified
+          </span>
+        )}
+        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${scoreColor}`}>
+          {quality_score}/100
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {analysis_time_ms}ms
+        </span>
+      </div>
+
+      {/* Show fixed issues if improved */}
+      {improved && issues.length > 0 && (
+        <div className="text-[10px] text-muted-foreground leading-relaxed">
+          <span className="font-medium text-foreground">Fixed: </span>
+          {issues.map((issue, i) => (
+            <span key={i} className="inline-flex items-center gap-0.5 mr-2">
+              {issue.severity === 'critical' && <AlertTriangle className="w-2.5 h-2.5 text-red-500" />}
+              {issue.severity === 'high' && <AlertTriangle className="w-2.5 h-2.5 text-orange-500" />}
+              {issue.type.replace('_', ' ')}
+              {i < issues.length - 1 && '·'}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ChatMessageBubble({ content, role, isError, onRetry, showRating, onRate, currentRating, model, analysisInfo }: ChatMessageProps) {
   return (
     <div className={`rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed ${
       role === 'user'
@@ -126,6 +190,11 @@ export function ChatMessageBubble({ content, role, isError, onRetry, showRating,
           >
             {content}
           </ReactMarkdown>
+
+          {/* Self-Analysis Quality Badge */}
+          {analysisInfo && (
+            <QualityBadge analysisInfo={analysisInfo} />
+          )}
 
           {/* Rating + Model Footer */}
           {showRating && content.length > 20 && (

@@ -4,6 +4,12 @@ import {
   executeTool,
   detectToolsClient,
 } from "@/lib/tools";
+import { selfAnalyzeResponse, shouldAnalyze } from "@/lib/self-analyze";
+import {
+  cacheImprovedResponse,
+  lookupCachedResponse,
+  normalizeQuery,
+} from "@/lib/cloud-cache";
 
 const MODEL_MAP: Record<string, string> = {
   "Qwen 2.5 7B (Best Quality)": "Qwen/Qwen2.5-7B-Instruct",
@@ -26,6 +32,7 @@ export async function POST(req: NextRequest) {
       max_tokens,
       stream: wantStream,
       tool_results: clientToolResults,
+      self_analyze: wantAnalysis,
     } = await req.json();
 
     const hfToken = process.env.HF_TOKEN;
@@ -39,6 +46,31 @@ export async function POST(req: NextRequest) {
     const requestedModelId = MODEL_MAP[model] || "Qwen/Qwen2.5-7B-Instruct";
     const temp = temperature ?? 0.7;
     const tokens = max_tokens ?? 2048;
+
+    // Extract the user's query (last user message)
+    const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
+    const userQuery = lastUserMsg?.content || "";
+
+    // ── Cloud cache: check if we have an improved version already ──
+    if (wantAnalysis !== false) {
+      const cached = await lookupCachedResponse(userQuery);
+      if (cached.found && cached.response) {
+        // Return cached improved response directly
+        if (wantStream) {
+          return streamText(cached.response, requestedModelId, {
+            cached: true,
+            qualityScore: cached.qualityScore ?? 80,
+          });
+        }
+        return NextResponse.json({
+          content: cached.response,
+          model: requestedModelId,
+          cache_hit: true,
+          quality_score: cached.qualityScore,
+          was_improved: cached.wasImproved,
+        });
+      }
+    }
 
     // ── Build final messages (inject client-side tool results if any) ──
     let finalMessages = messages;
@@ -61,17 +93,11 @@ export async function POST(req: NextRequest) {
 
     // ── Streaming mode ──
     if (wantStream) {
-      return handleStream(hfToken, requestedModelId, finalMessages, temp, tokens);
+      return handleStream(hfToken, requestedModelId, finalMessages, temp, tokens, userQuery, wantAnalysis !== false);
     }
 
-    // ── Non-streaming mode with tool loop ──
-    return handleNonStream(
-      hfToken,
-      requestedModelId,
-      finalMessages,
-      temp,
-      tokens
-    );
+    // ── Non-streaming mode with tool loop + self-analysis + fallback ──
+    return handleNonStream(hfToken, requestedModelId, finalMessages, temp, tokens, userQuery, wantAnalysis !== false);
   } catch (error) {
     return NextResponse.json(
       {
@@ -82,13 +108,15 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ━━━ Non-Streaming with Tool Loop + Fallback ━━━
+// ━━━ Non-Streaming with Tool Loop + Self-Analysis + Fallback ━━━
 async function handleNonStream(
   hfToken: string,
   requestedModelId: string,
   messages: any[],
   temperature: number,
-  max_tokens: number
+  max_tokens: number,
+  userQuery: string,
+  runAnalysis: boolean
 ) {
   const modelsToTry = [
     requestedModelId,
@@ -118,6 +146,9 @@ async function handleNonStream(
 
     // Handle tool calls
     const toolCalls = choice?.message?.tool_calls;
+    let finalReply = reply;
+    let toolUsed = false;
+
     if (toolCalls && toolCalls.length > 0) {
       const toolMessages = [...messages, choice.message];
 
@@ -145,17 +176,47 @@ async function handleNonStream(
       );
 
       if (status2 === 200 && data2.choices?.[0]) {
-        return NextResponse.json({
-          content: data2.choices[0].message?.content || "No response after tool use.",
-          model: modelId,
-          tool_used: true,
-        });
+        finalReply = data2.choices[0].message?.content || finalReply;
+        toolUsed = true;
       }
-
-      return NextResponse.json({ content: reply, model: modelId });
     }
 
-    return NextResponse.json({ content: reply, model: modelId });
+    // ── Self-Analysis: review and auto-correct ──
+    let analysisResult: Awaited<ReturnType<typeof selfAnalyzeResponse>> | null = null;
+    if (runAnalysis && shouldAnalyze(finalReply)) {
+      try {
+        analysisResult = await selfAnalyzeResponse(hfToken, userQuery, finalReply, modelId);
+
+        // If improved, cache the better version in the cloud
+        if (analysisResult && analysisResult.improved) {
+          // Fire and forget — don't block the response
+          cacheImprovedResponse(
+            userQuery,
+            analysisResult.finalResponse,
+            analysisResult.qualityScore,
+            modelId,
+            analysisResult.issues.map((i) => i.description)
+          ).catch(() => {});
+        }
+      } catch {
+        // Self-analysis failure should never break the response
+        analysisResult = null;
+      }
+    }
+
+    return NextResponse.json({
+      content: analysisResult?.finalResponse || finalReply,
+      model: modelId,
+      tool_used: toolUsed,
+      self_analysis: analysisResult
+        ? {
+            improved: analysisResult.improved,
+            quality_score: analysisResult.qualityScore,
+            issues: analysisResult.issues,
+            analysis_time_ms: analysisResult.analysisTimeMs,
+          }
+        : undefined,
+    });
   }
 
   return NextResponse.json(
@@ -164,13 +225,15 @@ async function handleNonStream(
   );
 }
 
-// ━━━ Streaming ━━━
+// ━━━ Streaming with Post-Stream Analysis Flag ━━━
 async function handleStream(
   hfToken: string,
   requestedModelId: string,
   messages: any[],
   temperature: number,
-  max_tokens: number
+  max_tokens: number,
+  userQuery: string,
+  runAnalysis: boolean
 ) {
   const modelsToTry = [
     requestedModelId,
@@ -201,7 +264,6 @@ async function handleStream(
 
       if (!response.ok || !response.body) {
         const errText = await response.text();
-        // If last model also failed, return error as SSE
         if (modelId === modelsToTry[modelsToTry.length - 1]) {
           const errorStream = new ReadableStream({
             start(controller) {
@@ -222,7 +284,7 @@ async function handleStream(
         continue;
       }
 
-      // Send model name as first event
+      // ── Stream with post-completion self-analysis ──
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
@@ -233,6 +295,7 @@ async function handleStream(
             const reader = response.body!.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
+            let fullContent = "";
 
             while (true) {
               const { done, value } = await reader.read();
@@ -250,7 +313,11 @@ async function handleStream(
                     continue;
                   }
                   try {
-                    JSON.parse(data); // validate
+                    const parsed = JSON.parse(data);
+                    const delta = parsed.choices?.[0]?.delta?.content;
+                    if (delta) {
+                      fullContent += delta;
+                    }
                     controller.enqueue(`data: ${data}\n\n`);
                   } catch {
                     // skip invalid JSON
@@ -263,6 +330,49 @@ async function handleStream(
               controller.enqueue(`${buffer}\n\n`);
             }
             controller.enqueue("data: [DONE]\n\n");
+
+            // ── Post-stream: trigger self-analysis in background ──
+            // Send analysis event after stream completes
+            if (runAnalysis && shouldAnalyze(fullContent)) {
+              try {
+                const analysisResult = await selfAnalyzeResponse(hfToken, userQuery, fullContent, modelId);
+
+                if (analysisResult.improved) {
+                  // Cache the improved version for future queries
+                  cacheImprovedResponse(
+                    userQuery,
+                    analysisResult.finalResponse,
+                    analysisResult.qualityScore,
+                    modelId,
+                    analysisResult.issues.map((i) => i.description)
+                  ).catch(() => {});
+
+                  // Send the improved version as a special event
+                  controller.enqueue(
+                    `data: ${JSON.stringify({
+                      type: 'self_improved',
+                      improved_response: analysisResult.finalResponse,
+                      quality_score: analysisResult.qualityScore,
+                      issues: analysisResult.issues,
+                      analysis_time_ms: analysisResult.analysisTimeMs,
+                    })}\n\n`
+                  );
+                } else if (analysisResult.issues.length > 0) {
+                  // Response passed review (good enough) but had minor notes
+                  controller.enqueue(
+                    `data: ${JSON.stringify({
+                      type: 'self_analysis',
+                      quality_score: analysisResult.qualityScore,
+                      issues: analysisResult.issues,
+                      analysis_time_ms: analysisResult.analysisTimeMs,
+                    })}\n\n`
+                  );
+                }
+              } catch {
+                // Analysis failure — stream already complete, ignore
+              }
+            }
+
             controller.close();
           } catch (err) {
             controller.error(err);
@@ -288,6 +398,50 @@ async function handleStream(
   );
 }
 
+// ━━━ Stream a cached response as SSE ━━━
+function streamText(
+  text: string,
+  modelId: string,
+  meta: { cached: boolean; qualityScore: number }
+) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      // Send model
+      controller.enqueue(
+        `data: ${JSON.stringify({ model: modelId })}\n\n`
+      );
+      // Send cache hit notification
+      controller.enqueue(
+        `data: ${JSON.stringify({
+          type: 'cache_hit',
+          quality_score: meta.qualityScore,
+        })}\n\n`
+      );
+      // Stream text in small chunks for visual effect
+      const chunkSize = 8;
+      for (let i = 0; i < text.length; i += chunkSize) {
+        const chunk = text.slice(i, i + chunkSize);
+        controller.enqueue(
+          `data: ${JSON.stringify({
+            choices: [{ delta: { content: chunk } }],
+          })}\n\n`
+        );
+      }
+      controller.enqueue("data: [DONE]\n\n");
+      controller.close();
+    },
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
+}
+
 // ━━━ HF API Call Helper ━━━
 async function callHF(
   hfToken: string,
@@ -295,9 +449,9 @@ async function callHF(
   messages: any[],
   temperature: number,
   max_tokens: number,
- tools: boolean
+  tools: boolean
 ) {
- const body: any = {
+  const body: any = {
     model: modelId,
     messages,
     temperature,

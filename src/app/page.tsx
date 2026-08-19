@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import {
   Bot, Zap, Globe, Shield, Code2, BrainCircuit,
-  Check, Github, MessageSquare,
+  Check, Github, MessageSquare, ArrowRight,
   Cpu, Network, Sparkles, Terminal,
   Play, Menu, X, FileText, Upload
 } from 'lucide-react'
